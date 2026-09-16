@@ -47,7 +47,7 @@ export function requestText(message: unknown): string {
  */
 export default agent<SurveyState>({
   id: "market-landscape-survey",
-  version: "0.4.2",
+  version: "0.4.3",
   model: "model",
   mode: "durable",
   tools: TOOLS,
@@ -60,7 +60,7 @@ export default agent<SurveyState>({
     const overhead = system.length + TOOL_DECLARATIONS.length;
     const allowance = contextAllowance(await ctx.describeResource("model"), state, overhead);
     const folded = allowance === null ? state : fold(state, allowance);
-    const spec = { system, context: surveyContext(folded), tools: RESEARCH_TOOLS };
+    const spec = { system, context: surveyContext(folded), tools: RESEARCH_TOOLS, effort: "high" as const };
     const turn = await ctx.turn(spec);
     const calibrated = recalibrate(folded, turn.cost, JSON.stringify(spec.context).length + overhead);
     if (turn.toolCalls.length === 0) {

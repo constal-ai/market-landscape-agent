@@ -27,7 +27,7 @@ function fakeCtx(turns: TurnRecord[], model?: { contextTokens?: number; maxOutpu
 describe("durable survey agent", () => {
   it("initializes its state from the request text and offers exactly the research tools", () => {
     expect(agent.mode).toBe("durable");
-    expect(agent.version).toBe("0.4.2");
+    expect(agent.version).toBe("0.4.3");
     expect(Object.keys(agent.tools!)).toEqual(["web_search", "web_fetch", "recall_evidence"]);
     expect(agent.init!({ messages: [{ role: "user", content: "heat pumps" }] }).request).toBe("heat pumps");
     expect(agent.init!("x")).toEqual(initialState("x"));
@@ -38,7 +38,7 @@ describe("durable survey agent", () => {
     const { ctx, run } = fakeCtx([turn("looking", [call("c1", "https://example.com/a", "body a")], 250), turn("# Report", [], 300)], { contextTokens: 1_000_000, maxOutputTokens: 100_000 });
     const first = await run(initialState("heat pumps"));
     expect(first.done).toBe(false);
-    expect(ctx.calls[0]).toEqual({ system: marketLandscapeResearchPrompt("heat pumps"), context: { request: "heat pumps", rounds: [] }, tools: ["web_search", "web_fetch", "recall_evidence"] });
+    expect(ctx.calls[0]).toEqual({ system: marketLandscapeResearchPrompt("heat pumps"), context: { request: "heat pumps", rounds: [] }, tools: ["web_search", "web_fetch", "recall_evidence"], effort: "high" });
     expect(first.state.rounds).toEqual([{ turn: 0, intent: "looking", observations: [
       { seq: 1, name: "web_fetch", args: { url: "https://example.com/a" }, status: "ok", result: "body a", preview: "body a", ref: REF },
     ] }]);
