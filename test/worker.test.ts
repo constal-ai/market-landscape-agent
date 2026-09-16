@@ -36,6 +36,10 @@ describe("durable survey handler", () => {
     expect(shared.body.survey).toMatchObject({ id: ID, report: "# Report", request: "electric bikes, Europe\nmore detail", status: "complete" });
     expect(shared.body.survey).not.toHaveProperty("owner_hash");
     expect((await json(await call(ui, "/api/surveys/00000000-0000-4000-8000-000000000000"))).status).toBe(404);
+    expect((await call(ui, `/api/surveys/${ID}`, "DELETE", { owner: OTHER })).status).toBe(403);
+    expect((await json(await call(ui, `/api/surveys/${ID}`, "DELETE", { owner: OWNER }))).body).toEqual({ deleted: ID });
+    expect((await call(ui, `/api/surveys/${ID}`)).status).toBe(404);
+    expect((await call(ui, `/api/surveys/${ID}`, "DELETE", { owner: OWNER })).status).toBe(404);
   });
 
   it("serves a versioned public feed that reports unchanged cheaply and marks abandoned runs", async () => {

@@ -102,6 +102,16 @@ export default {
       return json({ survey: publicRow(row, now) });
     }
 
+    if (survey && request.method === "DELETE") {
+      const input = await body(request); const owner = input?.owner;
+      if (typeof owner !== "string" || !OWNER.test(owner)) return json({ error: "invalid survey deletion" }, 400);
+      const current = state.query("SELECT owner_hash FROM surveys WHERE id = ?", [survey[1]]).rows[0];
+      if (!current) return json({ error: "survey not found" }, 404);
+      if (current.owner_hash !== await ownerHash(owner)) return json({ error: "not the survey owner" }, 403);
+      state.query("DELETE FROM surveys WHERE id = ?", [survey[1]]);
+      return json({ deleted: survey[1] });
+    }
+
     if (path.startsWith("/api/")) return json({ error: "not found" }, 404);
     // Shared report links render the single-page app; the browser reads the id from the URL.
     if (/^\/r\/[a-f0-9-]{36}$/u.test(path)) return context.assets.fetch(new Request(new URL("/", request.url), { method: "GET" }));
