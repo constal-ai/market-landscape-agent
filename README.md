@@ -100,20 +100,17 @@ token kept in that browser. The report is the Run's final result unchanged.
 npm run ui:preview        # Labeled demo fixture at http://127.0.0.1:4173
 npm run ui:preview:live   # Real Agent through your saved CLI credential
 npm run ui:build          # dist/ui/bundle.json and its immutable hash
-npm run ui:deploy         # Publish or update the private UI Resource
 ```
 
-`ui:deploy` requires the Agent to be deployed with the
-`channels.constal.ai/openai` label, which the manifest carries. It stores the
-bundle through a temporary helper Agent's ordinary CAS `put`, then creates or
-updates the `market-landscape-workspace` UI Resource pinned to the current Agent
-revision and the platform's OpenAI-compatible Channel. The UI is **public** by
-default: anyone with its hosted URL can run a survey, and each run is charged to
-the deploying account within the manifest's `limits` and the workspace Policy.
-Publish with `UI_ACCESS=authenticated` (or `npm run ui:deploy -- --private`) to
-require a Constal login instead. Console also shows an **Open** button on the
-Agent's page through the `app.constal.ai/primary` label. The `Deploy` workflow
-publishes the UI after deploying the Agent.
+The UI is declared in the `ui` block of `constal.agent.json`, so
+`constal deploy . --wait` publishes the Agent and the UI together: the platform
+packages the `ui/` directory as the bundle and pins the
+`market-landscape-workspace` UI Resource to the Agent revision it just built.
+The UI is **public**: anyone with its hosted URL can run a survey, and each run
+is charged to the deploying account within the manifest's `limits` and the
+workspace Policy. Set `"access": {"mode": "authenticated", ...}` in that block
+to require a Constal login instead. Console shows an **Open** button on the
+Agent's page through the `app.constal.ai/primary` label.
 
 ## Using the agent
 

@@ -53,7 +53,7 @@ function agentContractViolations(source: string, memorySource = ""): string[] {
     return [...violations, "the default export must register an agent object"];
   }
   const config = firstArgument;
-  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.4.0"], ["model", "model"], ["mode", "durable"]] as const) {
+  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.4.1"], ["model", "model"], ["mode", "durable"]] as const) {
     const entry = property(config, name);
     if (!entry || !ts.isPropertyAssignment(entry) || !ts.isStringLiteral(entry.initializer) || entry.initializer.text !== value) {
       violations.push(`agent ${name} must be ${value}`);
@@ -91,7 +91,7 @@ describe("market landscape agent structural contract", () => {
       readJson("package.json") as Promise<{ dependencies: Record<string, string> }>,
     ]);
     expect(manifest).toEqual({
-      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.4.0",
+      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.4.1",
       entry: "src/index.ts", mode: "durable", displayName: "Market landscape survey", description: expect.any(String),
       labels: { "app.constal.ai/use-case": "market-research", "channels.constal.ai/openai": "enabled" },
       bindings: {
@@ -101,7 +101,13 @@ describe("market landscape agent structural contract", () => {
         cas: "crn:constal:production:platform:default:cas/constal",
       },
       policies: [], tools: ["web_search", "web_fetch", "recall_evidence"],
-      limits: { maxRunMicroUsd: 50_000_000, maxTurns: 256 }, expectedCurrentDeploymentRevision: null,
+      limits: { maxRunMicroUsd: 50_000_000, maxTurns: 256 },
+      ui: { id: "market-landscape-workspace", displayName: "Market landscape", description: expect.any(String), source: "ui",
+        channel: { kind: "local", resourceKind: "channel", id: "openai-chat-completions" }, access: { mode: "public" },
+        execution: { mode: "durable", storage: { kind: "sqlite", maximumBytes: 268_435_456, maximumRowsReadPerRequest: 10_000, maximumRowsWrittenPerRequest: 1_000, maximumResultBytes: 1_048_576 } },
+        limits: { requestBodyBytes: 131_072, responseBodyBytes: 4_194_304, cpuMs: 1_000, subrequests: 8 },
+        labels: { "app.constal.ai/use-case": "market-research", "app.constal.ai/primary": "true" } },
+      expectedCurrentDeploymentRevision: null,
     });
     // The SDK web helpers are catalog Tools: each names the manifest binding and operation the deployer resolves.
     expect(webSearch.catalog).toEqual({ binding: "search", op: "search" });

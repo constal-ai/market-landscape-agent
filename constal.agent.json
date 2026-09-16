@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "market-landscape-survey",
   "namespace": "default",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "entry": "src/index.ts",
   "mode": "durable",
   "displayName": "Market landscape survey",
@@ -27,6 +27,40 @@
   "limits": {
     "maxRunMicroUsd": 50000000,
     "maxTurns": 256
+  },
+  "ui": {
+    "id": "market-landscape-workspace",
+    "displayName": "Market landscape",
+    "description": "Ask for a market in a few words, watch surveys run, and share sourced supply, demand, and dynamics reports.",
+    "source": "ui",
+    "channel": {
+      "kind": "local",
+      "resourceKind": "channel",
+      "id": "openai-chat-completions"
+    },
+    "access": {
+      "mode": "public"
+    },
+    "execution": {
+      "mode": "durable",
+      "storage": {
+        "kind": "sqlite",
+        "maximumBytes": 268435456,
+        "maximumRowsReadPerRequest": 10000,
+        "maximumRowsWrittenPerRequest": 1000,
+        "maximumResultBytes": 1048576
+      }
+    },
+    "limits": {
+      "requestBodyBytes": 131072,
+      "responseBodyBytes": 4194304,
+      "cpuMs": 1000,
+      "subrequests": 8
+    },
+    "labels": {
+      "app.constal.ai/use-case": "market-research",
+      "app.constal.ai/primary": "true"
+    }
   },
   "expectedCurrentDeploymentRevision": null
 }
