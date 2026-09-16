@@ -27,7 +27,7 @@ function fakeCtx(turns: TurnRecord[], model?: { contextTokens?: number; maxOutpu
 describe("durable survey agent", () => {
   it("initializes its state from the request text and offers exactly the research tools", () => {
     expect(agent.mode).toBe("durable");
-    expect(agent.version).toBe("0.4.1");
+    expect(agent.version).toBe("0.4.2");
     expect(Object.keys(agent.tools!)).toEqual(["web_search", "web_fetch", "recall_evidence"]);
     expect(agent.init!({ messages: [{ role: "user", content: "heat pumps" }] }).request).toBe("heat pumps");
     expect(agent.init!("x")).toEqual(initialState("x"));

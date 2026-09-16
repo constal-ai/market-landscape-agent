@@ -22,7 +22,7 @@ Resources in Constal's public catalog, the same catalog Horizon itself uses:
 
 | Binding | Default Resource | Purpose |
 | --- | --- | --- |
-| `model` | `crn:constal:production:platform:default:model/gpt-5.6-terra` | The conversational model that plans research and writes the report. |
+| `model` | `crn:constal:production:platform:default:model/gpt-5.6-luna` | The conversational model that plans research and writes the report. |
 | `search` | `crn:constal:production:platform:default:service/constal-search` | The Service behind the `web_search` tool. |
 | `web` | `crn:constal:production:platform:default:web/constal` | The Web Resource behind the `web_fetch` tool. |
 

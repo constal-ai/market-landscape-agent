@@ -47,7 +47,7 @@ export function requestText(message: unknown): string {
  */
 export default agent<SurveyState>({
   id: "market-landscape-survey",
-  version: "0.4.1",
+  version: "0.4.2",
   model: "model",
   mode: "durable",
   tools: TOOLS,
