@@ -1,28 +1,15 @@
 // Copyright 2026 Coresource AI, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { agent, webFetch, webSearch, type ToolCallRecord } from "@constal/sdk";
+import { agent, webFetch, webSearch } from "@constal/sdk";
+import { compactContext, contextAllowance, initialState, recalibrate, recordRound, surveyContext, type SurveyState } from "./memory.js";
 import { marketLandscapeResearchPrompt } from "./prompt.js";
 
 const RESEARCH_TOOLS = ["web_search", "web_fetch"];
 
-/** The runtime's Tool outcome, projected to what the model needs on later turns. */
-interface Observation {
-  name: string;
-  args: unknown;
-  status: ToolCallRecord["status"];
-  result?: unknown;
-  preview?: unknown;
-  error?: unknown;
-}
-
 interface ChatMessage {
   role: string;
   content: string;
-}
-
-function observation({ name, args, status, result, preview, error }: ToolCallRecord): Observation {
-  return { name, args, status, result, preview, error };
 }
 
 function chatMessages(message: unknown): ChatMessage[] | null {
@@ -48,28 +35,40 @@ export function requestText(message: unknown): string {
   return JSON.stringify(message, null, 2);
 }
 
-export default agent({
+/**
+ * Durable: each dispatch resumes from the stored state and runs exactly one
+ * research turn, always the last turn of the step. The first research turn
+ * that makes no tool call is the final report, stored verbatim.
+ */
+export default agent<SurveyState>({
   id: "market-landscape-survey",
-  version: "0.2.0",
+  version: "0.3.0",
   model: "model",
-  mode: "script",
+  mode: "durable",
   tools: {
     web_search: webSearch,
     web_fetch: webFetch,
   },
-  async onMessage(message, ctx) {
-    const request = requestText(message);
-    const observations: Observation[] = [];
-
-    while (true) {
-      const turn = await ctx.turn({
-        system: marketLandscapeResearchPrompt(request),
-        context: { request, observations },
-        tools: RESEARCH_TOOLS,
-      });
-
-      if (turn.toolCalls.length === 0) return turn.message.content;
-      observations.push(...turn.toolCalls.map(observation));
+  init(message) {
+    return initialState(requestText(message));
+  },
+  async step(state, ctx) {
+    if (state.report !== null) return { state, done: true };
+    const allowance = contextAllowance(await ctx.describeResource("model"), state);
+    const compacted = await compactContext(state, allowance, ctx);
+    const spec = {
+      system: marketLandscapeResearchPrompt(compacted.request),
+      context: surveyContext(compacted),
+      tools: RESEARCH_TOOLS,
+    };
+    const turn = await ctx.turn(spec);
+    const calibrated = recalibrate(compacted, turn.cost, JSON.stringify(spec).length);
+    if (turn.toolCalls.length === 0) {
+      return { state: { ...calibrated, turns: calibrated.turns + 1, report: turn.message.content }, done: true };
     }
+    return { state: recordRound(calibrated, turn), done: false };
+  },
+  output(state) {
+    return state.report ?? "";
   },
 });

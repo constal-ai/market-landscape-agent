@@ -3,9 +3,9 @@
   "kind": "agent",
   "id": "market-landscape-survey",
   "namespace": "default",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "entry": "src/index.ts",
-  "mode": "script",
+  "mode": "durable",
   "displayName": "Market landscape survey",
   "description": "Researches a market from a natural-language request and reports supply side, demand side, and gaps and market dynamics.",
   "labels": {

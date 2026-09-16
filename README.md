@@ -43,6 +43,25 @@ Operators running another environment replace the three CRNs with equivalent
 Resources of the same kinds. Any exact CRN or a `{ "kind": "local", ... }`
 reference to a Resource in the deploying namespace is accepted.
 
+## Durable execution and context compaction
+
+The agent runs in the runtime's `durable` mode: each platform dispatch runs one
+`step` that resumes from the stored, content-addressed state (the request, the
+model's working notes, an evidence digest, the recent rounds, and the report)
+instead of replaying the journal. Every step runs exactly one research turn;
+the first research turn that makes no tool call is the final report, and the
+run result is still that plain report string.
+
+Observations stay bounded over long surveys. When the serialized research
+context exceeds a character allowance (derived from the bound model's context
+window when it is reported, else a fixed constant), the oldest rounds are
+reduced to numbered receipts with bounded excerpts, and the model refreshes its
+own working notes in a tools-free turn before the research turn runs. The
+compacted form is the returned state, so the compaction is journaled with the
+step. The model keeps every research decision: nothing in the agent parses the
+request or limits queries, sources, or turns; the notes turns count toward the
+manifest `limits`, which remain the only backstop.
+
 ## Deploying
 
 Deploy the repository with the public Constal CLI, then start a run in a
@@ -142,7 +161,7 @@ runs the check and then `constal deploy . --wait` using the `CONSTAL_API_KEY`
 secret of the `constal` environment, into the namespace given as its input.
 
 The structural tests check
-package and manifest identity, script entry-point configuration, the
+package and manifest identity, durable entry-point configuration (init, step, output), the
 binding and tool declarations, and the source-level conversational orchestration.
 Together these checks establish authored package, type, configuration, prompt,
 and orchestration intent. They do **not** prove that a deployed model performed
@@ -157,10 +176,12 @@ applicable Policy. Submit a representative natural-language market request and
 review the runtime trace and final response together. The review should:
 
 - confirm actual `web_search` and `web_fetch` activity and that returned tool
-  observations (name, arguments, status, result or preview, and error) are
-  available to later model turns before the final no-tool response;
+  observations (number, name, arguments, status, result or preview, and error)
+  are available verbatim to later model turns until they are folded into the
+  working notes and receipts, before the final no-tool response;
 - compare citations or source identifiers for material factual claims with the
-  search/fetch evidence actually returned at runtime;
+  observation numbers and URLs actually retrieved at runtime, including
+  re-fetches made after compaction;
 - assess, for the submitted topic, the substantive Supply Side, Demand Side, and
   Gaps & Market Dynamics analysis rather than merely checking headings or
   keywords;

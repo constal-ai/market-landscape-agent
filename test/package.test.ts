@@ -7,7 +7,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const exampleRoot = new URL("../", import.meta.url);
-const exampleFiles = ["README.md", "src/index.ts", "src/prompt.ts"];
+const exampleFiles = ["README.md", "src/index.ts", "src/memory.ts", "src/prompt.ts"];
 
 async function readJson(path: string): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(new URL(path, exampleRoot), "utf8")) as Record<string, unknown>;
@@ -36,7 +36,7 @@ function missingSpdx(files: Record<string, string>): string[] {
 }
 
 /** Validates authored configuration and orchestration, never a generated report. */
-function agentContractViolations(source: string): string[] {
+function agentContractViolations(source: string, memorySource = ""): string[] {
   const file = ts.createSourceFile("index.ts", source, ts.ScriptTarget.ES2023, true);
   const violations: string[] = [];
   const researchTools = file.statements.find((statement): statement is ts.VariableStatement => ts.isVariableStatement(statement)
@@ -53,7 +53,7 @@ function agentContractViolations(source: string): string[] {
     return [...violations, "the default export must register an agent object"];
   }
   const config = firstArgument;
-  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.2.0"], ["model", "model"], ["mode", "script"]] as const) {
+  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.3.0"], ["model", "model"], ["mode", "durable"]] as const) {
     const entry = property(config, name);
     if (!entry || !ts.isPropertyAssignment(entry) || !ts.isStringLiteral(entry.initializer) || entry.initializer.text !== value) {
       violations.push(`agent ${name} must be ${value}`);
@@ -67,17 +67,18 @@ function agentContractViolations(source: string): string[] {
     violations.push("registered tools must map web_search and web_fetch to SDK web helpers");
   }
 
-  const handler = property(config, "onMessage");
-  const body = handler && ts.isMethodDeclaration(handler) ? handler.body?.getText() ?? "" : "";
+  if (property(config, "onMessage")) violations.push("a durable agent must not register onMessage");
+  if (!property(config, "init")?.getText().includes("requestText(message)")) violations.push("agent init must derive the state from requestText(message)");
+  const step = property(config, "step");
+  const body = step && ts.isMethodDeclaration(step) ? step.body?.getText() ?? "" : "";
   for (const required of [
-    "const request = requestText(message)",
-    "const observations: Observation[] = []", "while (true)",
-    "system: marketLandscapeResearchPrompt(request)", "context: { request, observations }", "tools: RESEARCH_TOOLS",
-    "if (turn.toolCalls.length === 0) return turn.message.content", "observations.push(...turn.toolCalls.map(observation))",
+    "system: marketLandscapeResearchPrompt(", "tools: RESEARCH_TOOLS", "turn.toolCalls.length === 0",
+    "report: turn.message.content", "done: true", "done: false",
   ]) {
     if (!body.includes(required)) violations.push(`runtime lifecycle is missing ${required}`);
   }
-  for (const prohibited of prohibitedControlViolations(source)) {
+  if (!property(config, "output")?.getText().includes("state.report")) violations.push("agent output must return the stored report");
+  for (const prohibited of prohibitedControlViolations(`${source}\n${memorySource}`)) {
     violations.push(`prohibited in-agent control: ${prohibited}`);
   }
   return violations;
@@ -85,14 +86,15 @@ function agentContractViolations(source: string): string[] {
 
 describe("market landscape agent structural contract", () => {
   it("keeps its self-contained script package, manifest, and entrypoint identity aligned", async () => {
-    const [manifest, pkg, lockfile, source, config, rootPackage] = await Promise.all([
+    const [manifest, pkg, lockfile, source, memorySource, config, rootPackage] = await Promise.all([
       readJson("constal.agent.json"), readJson("package.json"), readJson("package-lock.json"),
-      readFile(new URL("src/index.ts", exampleRoot), "utf8"), readFile(new URL("tsconfig.json", exampleRoot), "utf8"),
+      readFile(new URL("src/index.ts", exampleRoot), "utf8"), readFile(new URL("src/memory.ts", exampleRoot), "utf8"),
+      readFile(new URL("tsconfig.json", exampleRoot), "utf8"),
       readJson("package.json") as Promise<{ dependencies: Record<string, string> }>,
     ]);
     expect(manifest).toEqual({
-      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.2.0",
-      entry: "src/index.ts", mode: "script", displayName: "Market landscape survey", description: expect.any(String),
+      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.3.0",
+      entry: "src/index.ts", mode: "durable", displayName: "Market landscape survey", description: expect.any(String),
       labels: { "app.constal.ai/use-case": "market-research", "channels.constal.ai/openai": "enabled" },
       bindings: {
         model: "crn:constal:production:platform:default:model/gpt-5.6-terra",
@@ -112,7 +114,7 @@ describe("market landscape agent structural contract", () => {
     });
     expect(lockfile).toMatchObject({ name: pkg.name, version: pkg.version, lockfileVersion: 3, packages: { "": { name: pkg.name, version: pkg.version }, "node_modules/@constal/sdk": { version: rootPackage.dependencies["@constal/sdk"] } } });
     expect(config).toContain('"include": ["src/**/*.ts"]');
-    expect(agentContractViolations(source)).toEqual([]);
+    expect(agentContractViolations(source, memorySource)).toEqual([]);
   });
 
   it("makes the research and reporting obligations an authored prompt contract", async () => {
@@ -123,6 +125,7 @@ describe("market landscape agent structural contract", () => {
       "retrieved facts", "synthesis or analysis", "estimates", "forecasts", "Supply Side", "Demand Side",
       "Gaps & Market Dynamics", "material contradictions", "unavailable, denied, empty, insufficient", "remaining uncertainty",
       "You own the semantic decisions", "Original user request:\\n${userRequest}",
+      "WORKING_NOTES_PROMPT", "Return only the updated notes", "delivered to the user as the final report", "not the report",
     ]) expect(prompt).toContain(obligation);
   });
 
@@ -137,9 +140,23 @@ describe("market landscape agent structural contract", () => {
 
   it("rejects material agent-contract and prohibited-control mutations", async () => {
     const source = await readFile(new URL("src/index.ts", exampleRoot), "utf8");
+    const memorySource = await readFile(new URL("src/memory.ts", exampleRoot), "utf8");
     expect(agentContractViolations(source.replace('model: "model"', 'model: "other"'))).toContain("agent model must be model");
+    expect(agentContractViolations(source.replace('mode: "durable"', 'mode: "script"'))).toContain("agent mode must be durable");
+    expect(agentContractViolations(source, `${memorySource}\nconst tokenBudget = 1;`)).toContain("prohibited in-agent control: tokenBudget");
+    expect(agentContractViolations(source.replace(/\n  output\(state\) \{[^]*?\n  \},/, ""))).toContain("agent output must return the stored report");
     expect(agentContractViolations(source.replace('const RESEARCH_TOOLS = ["web_search", "web_fetch"]', 'const RESEARCH_TOOLS = ["web_search"]')))
       .toContain("the offered research tools must be exactly web_search and web_fetch");
     expect(agentContractViolations(`${source}\nconst maxTurns = 2;`)).toContain("prohibited in-agent control: maxTurns");
+    for (const [before, after, violation] of [
+      ["  init(message) {", "  onMessage() {},\n  init(message) {", "a durable agent must not register onMessage"],
+      ["initialState(requestText(message))", 'initialState("x")', "agent init must derive the state from requestText(message)"],
+      ["done: false", "done: !turn", "runtime lifecycle is missing done: false"],
+      ["report: turn.message.content", "report: String(turn.message.content)", "runtime lifecycle is missing report: turn.message.content"],
+    ] as const) {
+      const mutated = source.replace(before, after);
+      expect(mutated).not.toBe(source);
+      expect(agentContractViolations(mutated)).toContain(violation);
+    }
   });
 });
