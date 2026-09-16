@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "market-landscape-survey",
   "namespace": "default",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "entry": "src/index.ts",
   "mode": "durable",
   "displayName": "Market landscape survey",
@@ -15,12 +15,14 @@
   "bindings": {
     "model": "crn:constal:production:platform:default:model/gpt-5.6-terra",
     "search": "crn:constal:production:platform:default:service/constal-search",
-    "web": "crn:constal:production:platform:default:web/constal"
+    "web": "crn:constal:production:platform:default:web/constal",
+    "cas": "crn:constal:production:platform:default:cas/constal"
   },
   "policies": [],
   "tools": [
     "web_search",
-    "web_fetch"
+    "web_fetch",
+    "recall_evidence"
   ],
   "limits": {
     "maxRunMicroUsd": 50000000,

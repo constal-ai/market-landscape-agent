@@ -4,105 +4,81 @@
 import type { Cost, Ctx, ToolCallRecord, TurnRecord, TurnSpec } from "@constal/sdk";
 import { describe, expect, it, vi } from "vitest";
 import agent from "../src/index.js";
-import { EXCERPT_CHARACTERS, contextSize, initialState, recordRound, type SurveyState } from "../src/memory.js";
-import { WORKING_NOTES_PROMPT, marketLandscapeResearchPrompt } from "../src/prompt.js";
+import { contextSize, initialState, recordRound, type SurveyState } from "../src/memory.js";
+import { marketLandscapeResearchPrompt } from "../src/prompt.js";
+import { recallEvidence } from "../src/tools.js";
 
+const REF = "b".repeat(64);
 const call = (id: string, url: string, body: string): ToolCallRecord =>
-  ({ id, pos: "0", name: "web_fetch", version: "1", args: { url }, maxEffect: "read", effectObserved: "read", status: "ok", result: body, preview: body.slice(0, 20), ref: `ref-${id}` } as ToolCallRecord);
+  ({ id, pos: "0", name: "web_fetch", version: "1", args: { url }, maxEffect: "read-only", effectObserved: "read-only", status: "ok", result: body, preview: body.slice(0, 20), ref: REF } as ToolCallRecord);
 const turn = (content: string, toolCalls: ToolCallRecord[] = [], input = 0): TurnRecord =>
   ({ hash: "h", message: { role: "assistant", content }, toolCalls, final: false, artifact: null, cost: { tokens: { input, output: 0, cached: 0, cacheWrite: 0 } } as Cost, attempts: 1, gate: null });
 
-function fakeCtx(turns: TurnRecord[] | ((spec: TurnSpec) => TurnRecord | Promise<TurnRecord>), contextTokens?: number) {
+function fakeCtx(turns: TurnRecord[], model?: { contextTokens?: number; maxOutputTokens?: number }) {
   const calls: TurnSpec[] = [];
   const ctx = {
     calls,
-    turn: vi.fn(async (spec: TurnSpec) => { calls.push(spec); return Array.isArray(turns) ? turns.shift() ?? turn("exhausted") : turns(spec); }),
-    describeResource: vi.fn(async () => contextTokens === undefined ? null : { model: { id: "m", contextTokens } }),
-    step: (_name: string, fn: () => Promise<unknown>) => fn(),
+    turn: vi.fn(async (spec: TurnSpec) => { calls.push(spec); return turns.shift() ?? turn("exhausted"); }),
+    describeResource: vi.fn(async () => model === undefined ? null : { model: { id: "m", ...model } }),
   };
   return { ctx, run: (state: SurveyState) => agent.step!(state, ctx as unknown as Ctx) };
 }
 
 describe("durable survey agent", () => {
-  it("initializes its state from the request text", () => {
+  it("initializes its state from the request text and offers exactly the research tools", () => {
     expect(agent.mode).toBe("durable");
-    expect(agent.version).toBe("0.3.0");
+    expect(agent.version).toBe("0.4.0");
+    expect(Object.keys(agent.tools!)).toEqual(["web_search", "web_fetch", "recall_evidence"]);
     expect(agent.init!({ messages: [{ role: "user", content: "heat pumps" }] }).request).toBe("heat pumps");
     expect(agent.init!("x")).toEqual(initialState("x"));
     expect(agent.output!(initialState("x"))).toBe("");
   });
 
   it("runs one research turn per step and stores the no-tool response as the report", async () => {
-    const { ctx, run } = fakeCtx([turn("looking", [call("c1", "https://example.com/a", "body a")], 250), turn("# Report", [], 300)]);
+    const { ctx, run } = fakeCtx([turn("looking", [call("c1", "https://example.com/a", "body a")], 250), turn("# Report", [], 300)], { contextTokens: 1_000_000, maxOutputTokens: 100_000 });
     const first = await run(initialState("heat pumps"));
     expect(first.done).toBe(false);
-    expect(ctx.calls[0]).toEqual({
-      system: marketLandscapeResearchPrompt("heat pumps"),
-      context: { request: "heat pumps", workingNotes: null, earlierEvidence: [], recentRounds: [] },
-      tools: ["web_search", "web_fetch"],
-    });
-    expect(first.state.recent).toEqual([{ turn: 0, intent: "looking", observations: [
-      { seq: 1, name: "web_fetch", args: { url: "https://example.com/a" }, status: "ok", result: "body a", preview: "body a", ref: "ref-c1" },
+    expect(ctx.calls[0]).toEqual({ system: marketLandscapeResearchPrompt("heat pumps"), context: { request: "heat pumps", rounds: [] }, tools: ["web_search", "web_fetch", "recall_evidence"] });
+    expect(first.state.rounds).toEqual([{ turn: 0, intent: "looking", observations: [
+      { seq: 1, name: "web_fetch", args: { url: "https://example.com/a" }, status: "ok", result: "body a", preview: "body a", ref: REF },
     ] }]);
-    expect(first.state).toMatchObject({ turns: 1, nextSeq: 2, report: null, charactersPerToken: Math.min(4, JSON.stringify(ctx.calls[0]).length / 250) });
-
+    expect(first.state).toMatchObject({ turns: 1, nextSeq: 2, report: null });
+    expect(first.state.charactersPerToken).toBeGreaterThan(0);
+    expect(first.state.charactersPerToken).not.toBe(4);
     const second = await run(first.state);
-    expect(second.done).toBe(true);
-    expect(second.state.report).toBe("# Report");
-    expect(second.state.turns).toBe(2);
-    expect((ctx.calls[1]!.context as { recentRounds: unknown[] }).recentRounds).toEqual(first.state.recent);
+    expect(second).toMatchObject({ done: true, state: { report: "# Report", turns: 2 } });
+    expect((ctx.calls[1]!.context as { rounds: unknown[] }).rounds).toEqual(first.state.rounds);
     expect(agent.output!(second.state)).toBe("# Report");
-    expect(typeof agent.output!(second.state)).toBe("string");
-    expect(ctx.describeResource).toHaveBeenCalledWith("model");
-
-    const again = await run(second.state);
-    expect(again).toEqual({ state: second.state, done: true });
+    expect(await run(second.state)).toEqual({ state: second.state, done: true });
     expect(ctx.turn).toHaveBeenCalledTimes(2);
   });
 
-  it("refreshes the working notes before the research turn when the context exceeds the allowance", async () => {
+  it("releases old results only when the model's reported window is full, and keeps everything when it reports none", async () => {
     let state = initialState("heat pumps");
-    for (let i = 0; i < 4; i += 1) state = recordRound(state, turn(`intent ${i}`, [call(`c${i}`, `https://example.com/${i}`, "x".repeat(20_000))]));
-    const contextTokens = Math.ceil((contextSize({ ...state, recent: state.recent.slice(3) }) + 4 * EXCERPT_CHARACTERS) / (0.6 * 4));
-    const { ctx, run } = fakeCtx((spec) => spec.tools.length === 0 ? turn("private notes") : turn("next", [call("c4", "https://example.com/4", "y")]), contextTokens);
-    const result = await run(state);
-    const notesTurns = ctx.calls.slice(0, -1);
-    const research = ctx.calls[ctx.calls.length - 1]!;
-    expect(notesTurns.length).toBeGreaterThan(0);
-    expect(notesTurns.every((spec) => spec.tools.length === 0 && spec.system.startsWith(WORKING_NOTES_PROMPT))).toBe(true);
-    expect(notesTurns.some((spec) => JSON.stringify(spec.context).includes("x".repeat(1_000)))).toBe(true);
-    expect(research).toMatchObject({ system: marketLandscapeResearchPrompt("heat pumps"), tools: ["web_search", "web_fetch"] });
-    expect(research.context).toEqual({
-      request: "heat pumps", workingNotes: "private notes",
-      earlierEvidence: [0, 1, 2].map((i) => ({ seq: i + 1, turn: i, name: "web_fetch", args: { url: `https://example.com/${i}` }, status: "ok", ref: `ref-c${i}` })),
-      recentRounds: state.recent.slice(3),
-    });
-    expect(result.done).toBe(false);
-    expect(result.state).toMatchObject({ notes: "private notes", notesThroughTurn: 3, report: null, turns: 5, nextSeq: 6 });
-    expect(result.state.recent.map((round) => round.turn)).toEqual([3, 4]);
-    expect(JSON.stringify(result.state)).not.toContain('"report":"private notes"');
+    for (let i = 0; i < 3; i += 1) state = recordRound(state, turn(`intent ${i}`, [call(`c${i}`, `https://example.com/${i}`, "x".repeat(20_000))]));
+    const overhead = marketLandscapeResearchPrompt("heat pumps").length
+      + JSON.stringify(Object.values(agent.tools!).map(({ name, description, schema }) => ({ name, description, schema }))).length;
+    // Allowance of (contextSize - 15_000) characters: releasing the oldest 20_000-character result is enough, releasing two is not needed.
+    const window = Math.ceil((contextSize(state) - 15_000 + overhead) / 4);
+    const full = fakeCtx([turn("next", [call("c3", "https://example.com/3", "y")])], { contextTokens: window, maxOutputTokens: 0 });
+    const result = await full.run(state);
+    const rounds = (full.ctx.calls[0]!.context as { rounds: Array<{ observations: Array<{ result?: unknown; ref?: string }> }> }).rounds;
+    expect(rounds.map((round) => round.observations[0]!.result === undefined)).toEqual([true, false, false]);
+    expect(rounds[0]!.observations[0]!.ref).toBe(REF);
+    expect(result.state.rounds[0]!.observations[0]!.result).toBeUndefined();
+    expect(result.state.rounds.length).toBe(4);
+    const unbounded = fakeCtx([turn("next", [call("c3", "https://example.com/3", "y")])]);
+    await unbounded.run(state);
+    expect((unbounded.ctx.calls[0]!.context as { rounds: unknown[] }).rounds).toEqual(state.rounds);
   });
 
-  it("runs the research turn with the excerpts intact when the notes turn fails and never catches errors", async () => {
-    let state = initialState("heat pumps");
-    for (let i = 0; i < 4; i += 1) state = recordRound(state, turn(`intent ${i}`, [call(`c${i}`, `https://example.com/${i}`, "x".repeat(20_000))]));
-    const contextTokens = Math.ceil((contextSize({ ...state, recent: state.recent.slice(3) }) + 4 * EXCERPT_CHARACTERS) / (0.6 * 4));
-    const { ctx, run } = fakeCtx((spec) => spec.tools.length === 0 ? turn("") : turn("next", [call("c4", "https://example.com/4", "y")]), contextTokens);
-    const result = await run(state);
-    expect(ctx.calls.length).toBeGreaterThan(1);
-    expect(ctx.calls.slice(0, -1).every((spec) => spec.tools.length === 0)).toBe(true);
-    const research = ctx.calls[ctx.calls.length - 1]!;
-    expect(research.tools).toEqual(["web_search", "web_fetch"]);
-    const context = research.context as { workingNotes: string | null; earlierEvidence: { excerpt?: unknown }[] };
-    expect(context.workingNotes).toBeNull();
-    expect(context.earlierEvidence.map((entry) => typeof entry.excerpt)).toEqual(["string", "string", "string"]);
-    expect(result.done).toBe(false);
-    expect(result.state).toMatchObject({ notes: null, notesThroughTurn: 0, turns: 5, report: null });
-    expect(result.state.digest.every((entry) => typeof entry.excerpt === "string")).toBe(true);
-
-    const sentinel = new Error("down");
-    const failing = fakeCtx(() => Promise.reject(sentinel));
-    await expect(failing.run(initialState("x"))).rejects.toBe(sentinel);
-    expect(failing.ctx.turn).toHaveBeenCalledTimes(1);
+  it("recalls an exact saved result by ref, whole or as a chosen window", async () => {
+    const invoke = vi.fn(async () => ({ ref: REF, value: "0123456789" }));
+    const ctx = { invoke, resources: { cas: "crn:cas" } } as unknown as Ctx;
+    expect(await recallEvidence.run!({ ref: REF }, ctx)).toEqual({ ref: REF, value: "0123456789" });
+    expect(await recallEvidence.run!({ ref: REF, offset: 4, length: 3 }, ctx)).toEqual({ ref: REF, text: "456", offset: 4, characters: 10, nextOffset: 7 });
+    expect(await recallEvidence.run!({ ref: REF, offset: 8 }, ctx)).toMatchObject({ text: "89", nextOffset: null });
+    expect(invoke).toHaveBeenCalledWith("crn:cas", "get", { ref: REF });
+    expect(recallEvidence.needs).toEqual([{ binding: "cas", kind: "cas", ops: ["get"] }]);
   });
 });

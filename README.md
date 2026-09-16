@@ -43,24 +43,23 @@ Operators running another environment replace the three CRNs with equivalent
 Resources of the same kinds. Any exact CRN or a `{ "kind": "local", ... }`
 reference to a Resource in the deploying namespace is accepted.
 
-## Durable execution and context compaction
+## Durable execution and evidence recall
 
 The agent runs in the runtime's `durable` mode: each platform dispatch runs one
-`step` that resumes from the stored, content-addressed state (the request, the
-model's working notes, an evidence digest, the recent rounds, and the report)
-instead of replaying the journal. Every step runs exactly one research turn;
-the first research turn that makes no tool call is the final report, and the
-run result is still that plain report string.
+`step` that resumes from the stored, content-addressed state (the request, every
+research round, and the report) instead of replaying the journal. Every step
+runs exactly one research turn; the first research turn that makes no tool call
+is the final report, and the run result is still that plain report string.
 
-Observations stay bounded over long surveys. When the serialized research
-context exceeds a character allowance (derived from the bound model's context
-window when it is reported, else a fixed constant), the oldest rounds are
-reduced to numbered receipts with bounded excerpts, and the model refreshes its
-own working notes in a tools-free turn before the research turn runs. The
-compacted form is the returned state, so the compaction is journaled with the
-step. The model keeps every research decision: nothing in the agent parses the
-request or limits queries, sources, or turns; the notes turns count toward the
-manifest `limits`, which remain the only backstop.
+Nothing in the agent limits queries, sources, turns, or how much of a page it
+reads. The platform content-addresses every tool result and hands the agent
+its full value and a ref. Full results stay in the context until the bound
+model's own reported window is the constraint; then the oldest results are
+released from the context, keeping the platform's preview and the ref, and the
+model reads any of them back exactly with `recall_evidence`, choosing the text
+window it needs. The window arithmetic uses only what the model reports
+(context and output tokens) and the ratio measured from the previous turn. The
+manifest `limits` remain the only backstop.
 
 ## Deploying
 
@@ -177,8 +176,8 @@ review the runtime trace and final response together. The review should:
 
 - confirm actual `web_search` and `web_fetch` activity and that returned tool
   observations (number, name, arguments, status, result or preview, and error)
-  are available verbatim to later model turns until they are folded into the
-  working notes and receipts, before the final no-tool response;
+  are available verbatim to later model turns until the model window releases
+  them to recall_evidence, before the final no-tool response;
 - compare citations or source identifiers for material factual claims with the
   observation numbers and URLs actually retrieved at runtime, including
   re-fetches made after compaction;

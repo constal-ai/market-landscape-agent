@@ -42,8 +42,8 @@ function agentContractViolations(source: string, memorySource = ""): string[] {
   const researchTools = file.statements.find((statement): statement is ts.VariableStatement => ts.isVariableStatement(statement)
     && statement.declarationList.declarations.some((declaration) => declaration.name.getText() === "RESEARCH_TOOLS"));
   const toolsDeclaration = researchTools?.declarationList.declarations.find((declaration) => declaration.name.getText() === "RESEARCH_TOOLS");
-  if (!toolsDeclaration || !toolsDeclaration.initializer || JSON.stringify(arrayValues(toolsDeclaration.initializer)) !== JSON.stringify(["web_search", "web_fetch"])) {
-    violations.push("the offered research tools must be exactly web_search and web_fetch");
+  if (!toolsDeclaration || !toolsDeclaration.initializer || JSON.stringify(arrayValues(toolsDeclaration.initializer)) !== JSON.stringify(["web_search", "web_fetch", "recall_evidence"])) {
+    violations.push("the offered research tools must be exactly web_search, web_fetch and recall_evidence");
   }
 
   const exportedAgent = file.statements.find((statement): statement is ts.ExportAssignment => ts.isExportAssignment(statement));
@@ -53,18 +53,16 @@ function agentContractViolations(source: string, memorySource = ""): string[] {
     return [...violations, "the default export must register an agent object"];
   }
   const config = firstArgument;
-  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.3.0"], ["model", "model"], ["mode", "durable"]] as const) {
+  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.4.0"], ["model", "model"], ["mode", "durable"]] as const) {
     const entry = property(config, name);
     if (!entry || !ts.isPropertyAssignment(entry) || !ts.isStringLiteral(entry.initializer) || entry.initializer.text !== value) {
       violations.push(`agent ${name} must be ${value}`);
     }
   }
   const registeredTools = property(config, "tools");
-  if (!registeredTools || !ts.isPropertyAssignment(registeredTools) || !ts.isObjectLiteralExpression(registeredTools.initializer)
-    || registeredTools.initializer.properties.map((entry) => entry.name?.getText()).join(",") !== "web_search,web_fetch"
-    || !registeredTools.initializer.getText().includes("web_search: webSearch")
-    || !registeredTools.initializer.getText().includes("web_fetch: webFetch")) {
-    violations.push("registered tools must map web_search and web_fetch to SDK web helpers");
+  if (!registeredTools || !ts.isPropertyAssignment(registeredTools) || registeredTools.initializer.getText() !== "TOOLS"
+    || !source.includes("const TOOLS = { web_search: webSearch, web_fetch: webFetch, recall_evidence: recallEvidence }")) {
+    violations.push("registered tools must map web_search and web_fetch to SDK web helpers and recall_evidence to the recall tool");
   }
 
   if (property(config, "onMessage")) violations.push("a durable agent must not register onMessage");
@@ -72,7 +70,7 @@ function agentContractViolations(source: string, memorySource = ""): string[] {
   const step = property(config, "step");
   const body = step && ts.isMethodDeclaration(step) ? step.body?.getText() ?? "" : "";
   for (const required of [
-    "system: marketLandscapeResearchPrompt(", "tools: RESEARCH_TOOLS", "turn.toolCalls.length === 0",
+    "marketLandscapeResearchPrompt(state.request)", "tools: RESEARCH_TOOLS", "turn.toolCalls.length === 0",
     "report: turn.message.content", "done: true", "done: false",
   ]) {
     if (!body.includes(required)) violations.push(`runtime lifecycle is missing ${required}`);
@@ -85,7 +83,7 @@ function agentContractViolations(source: string, memorySource = ""): string[] {
 }
 
 describe("market landscape agent structural contract", () => {
-  it("keeps its self-contained script package, manifest, and entrypoint identity aligned", async () => {
+  it("keeps its durable package, manifest, and entrypoint identity aligned", async () => {
     const [manifest, pkg, lockfile, source, memorySource, config, rootPackage] = await Promise.all([
       readJson("constal.agent.json"), readJson("package.json"), readJson("package-lock.json"),
       readFile(new URL("src/index.ts", exampleRoot), "utf8"), readFile(new URL("src/memory.ts", exampleRoot), "utf8"),
@@ -93,15 +91,16 @@ describe("market landscape agent structural contract", () => {
       readJson("package.json") as Promise<{ dependencies: Record<string, string> }>,
     ]);
     expect(manifest).toEqual({
-      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.3.0",
+      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.4.0",
       entry: "src/index.ts", mode: "durable", displayName: "Market landscape survey", description: expect.any(String),
       labels: { "app.constal.ai/use-case": "market-research", "channels.constal.ai/openai": "enabled" },
       bindings: {
         model: "crn:constal:production:platform:default:model/gpt-5.6-terra",
         search: "crn:constal:production:platform:default:service/constal-search",
         web: "crn:constal:production:platform:default:web/constal",
+        cas: "crn:constal:production:platform:default:cas/constal",
       },
-      policies: [], tools: ["web_search", "web_fetch"],
+      policies: [], tools: ["web_search", "web_fetch", "recall_evidence"],
       limits: { maxRunMicroUsd: 50_000_000, maxTurns: 256 }, expectedCurrentDeploymentRevision: null,
     });
     // The SDK web helpers are catalog Tools: each names the manifest binding and operation the deployer resolves.
@@ -125,7 +124,7 @@ describe("market landscape agent structural contract", () => {
       "retrieved facts", "synthesis or analysis", "estimates", "forecasts", "Supply Side", "Demand Side",
       "Gaps & Market Dynamics", "material contradictions", "unavailable, denied, empty, insufficient", "remaining uncertainty",
       "You own the semantic decisions", "Original user request:\\n${userRequest}",
-      "WORKING_NOTES_PROMPT", "Return only the updated notes", "delivered to the user as the final report", "not the report",
+      "recall_evidence", "rather than reconstructing it from memory", "delivered to the user as the final report",
     ]) expect(prompt).toContain(obligation);
   });
 
@@ -145,8 +144,8 @@ describe("market landscape agent structural contract", () => {
     expect(agentContractViolations(source.replace('mode: "durable"', 'mode: "script"'))).toContain("agent mode must be durable");
     expect(agentContractViolations(source, `${memorySource}\nconst tokenBudget = 1;`)).toContain("prohibited in-agent control: tokenBudget");
     expect(agentContractViolations(source.replace(/\n  output\(state\) \{[^]*?\n  \},/, ""))).toContain("agent output must return the stored report");
-    expect(agentContractViolations(source.replace('const RESEARCH_TOOLS = ["web_search", "web_fetch"]', 'const RESEARCH_TOOLS = ["web_search"]')))
-      .toContain("the offered research tools must be exactly web_search and web_fetch");
+    expect(agentContractViolations(source.replace('const RESEARCH_TOOLS = ["web_search", "web_fetch", "recall_evidence"]', 'const RESEARCH_TOOLS = ["web_search"]')))
+      .toContain("the offered research tools must be exactly web_search, web_fetch and recall_evidence");
     expect(agentContractViolations(`${source}\nconst maxTurns = 2;`)).toContain("prohibited in-agent control: maxTurns");
     for (const [before, after, violation] of [
       ["  init(message) {", "  onMessage() {},\n  init(message) {", "a durable agent must not register onMessage"],
