@@ -59,10 +59,39 @@ run; there is no second set of limits inside the agent. Policy governs which
 operations are allowed and whether approvals are required. The package attaches
 no Policies; the deploying workspace's Policy applies.
 
+## Instant UI
+
+The `ui/` directory is a stateless Constal Instant UI: one request box, a
+progress state while the Agent researches, and the finished report rendered
+from Markdown with its citations. Recent reports are kept only in the browser.
+The bundle holds no credentials, state, or agent logic; the browser sends the
+request as a chat message over the host-owned `/_constal/channel` route and
+polls `/_constal/runs/:id` until the Run completes.
+
+```sh
+npm run ui:preview        # Labeled demo fixture at http://127.0.0.1:4173
+npm run ui:preview:live   # Real Agent through your saved CLI credential
+npm run ui:build          # dist/ui/bundle.json and its immutable hash
+npm run ui:deploy         # Publish or update the private UI Resource
+```
+
+`ui:deploy` requires the Agent to be deployed with the
+`channels.constal.ai/openai` label, which the manifest carries. It stores the
+bundle through a temporary helper Agent's ordinary CAS `put`, then creates or
+updates the `market-landscape-workspace` UI Resource pinned to the current Agent
+revision, the platform's OpenAI-compatible Channel, and the tenant API-key
+AuthProvider. The UI is private: open it from the Agent's page in Console, where
+the `app.constal.ai/primary` label adds an **Open** button, or use its hosted
+URL and continue with your Constal login. The `Deploy` workflow publishes the UI
+after deploying the Agent.
+
 ## Using the agent
 
 After deployment with compatible admitted bindings, send the agent the user's
-market request as conversational text. For example, a user might ask for a
+market request as conversational text, through the Instant UI, the CLI, or the
+platform's OpenAI-compatible endpoint with `model` set to
+`market-landscape-survey`. A chat envelope with one user message is used as the
+request; a longer conversation is rendered as a transcript. For example, a user might ask for a
 landscape of a named sector in a region, or provide only a few market keywords.
 No deterministic keyword classification, market parsing, or application-side
 semantic routing is required or prescribed: the model interprets the original

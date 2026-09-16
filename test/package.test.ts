@@ -53,7 +53,7 @@ function agentContractViolations(source: string): string[] {
     return [...violations, "the default export must register an agent object"];
   }
   const config = firstArgument;
-  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.1.1"], ["model", "model"], ["mode", "script"]] as const) {
+  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.2.0"], ["model", "model"], ["mode", "script"]] as const) {
     const entry = property(config, name);
     if (!entry || !ts.isPropertyAssignment(entry) || !ts.isStringLiteral(entry.initializer) || entry.initializer.text !== value) {
       violations.push(`agent ${name} must be ${value}`);
@@ -70,7 +70,7 @@ function agentContractViolations(source: string): string[] {
   const handler = property(config, "onMessage");
   const body = handler && ts.isMethodDeclaration(handler) ? handler.body?.getText() ?? "" : "";
   for (const required of [
-    'const request = typeof message === "string" ? message : JSON.stringify(message, null, 2)',
+    "const request = requestText(message)",
     "const observations: Observation[] = []", "while (true)",
     "system: marketLandscapeResearchPrompt(request)", "context: { request, observations }", "tools: RESEARCH_TOOLS",
     "if (turn.toolCalls.length === 0) return turn.message.content", "observations.push(...turn.toolCalls.map(observation))",
@@ -91,8 +91,9 @@ describe("market landscape agent structural contract", () => {
       readJson("package.json") as Promise<{ dependencies: Record<string, string> }>,
     ]);
     expect(manifest).toEqual({
-      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.1.1",
+      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.2.0",
       entry: "src/index.ts", mode: "script", displayName: "Market landscape survey", description: expect.any(String),
+      labels: { "app.constal.ai/use-case": "market-research", "channels.constal.ai/openai": "enabled" },
       bindings: {
         model: "crn:constal:production:platform:default:model/gpt-5.6-terra",
         search: "crn:constal:production:platform:default:service/constal-search",

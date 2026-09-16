@@ -16,13 +16,41 @@ interface Observation {
   error?: unknown;
 }
 
+interface ChatMessage {
+  role: string;
+  content: string;
+}
+
 function observation({ name, args, status, result, preview, error }: ToolCallRecord): Observation {
   return { name, args, status, result, preview, error };
 }
 
+function chatMessages(message: unknown): ChatMessage[] | null {
+  const messages = message && typeof message === "object" && !Array.isArray(message)
+    ? (message as { messages?: unknown }).messages : undefined;
+  return Array.isArray(messages) && messages.length > 0 && messages.every((item) => item && typeof item === "object"
+    && typeof (item as ChatMessage).role === "string" && typeof (item as ChatMessage).content === "string")
+    ? messages as ChatMessage[] : null;
+}
+
+/**
+ * The request reaches the model unchanged. Plain text is used as is; the chat
+ * envelope delivered by the platform's OpenAI-compatible Channel and the Instant
+ * UI is rendered as a transcript; anything else is serialized rather than
+ * interpreted here.
+ */
+export function requestText(message: unknown): string {
+  if (typeof message === "string") return message;
+  const messages = chatMessages(message);
+  if (messages) {
+    return messages.length === 1 ? messages[0]!.content : messages.map(({ role, content }) => `${role}: ${content}`).join("\n\n");
+  }
+  return JSON.stringify(message, null, 2);
+}
+
 export default agent({
   id: "market-landscape-survey",
-  version: "0.1.1",
+  version: "0.2.0",
   model: "model",
   mode: "script",
   tools: {
@@ -30,9 +58,7 @@ export default agent({
     web_fetch: webFetch,
   },
   async onMessage(message, ctx) {
-    // The request reaches the model unchanged; a structured message is
-    // serialized rather than interpreted here.
-    const request = typeof message === "string" ? message : JSON.stringify(message, null, 2);
+    const request = requestText(message);
     const observations: Observation[] = [];
 
     while (true) {

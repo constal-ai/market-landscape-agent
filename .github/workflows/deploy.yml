@@ -28,3 +28,7 @@ jobs:
         env:
           CONSTAL_API_KEY: ${{ secrets.CONSTAL_API_KEY }}
           CONSTAL_NAMESPACE: ${{ inputs.namespace }}
+      - run: npm run ui:deploy
+        env:
+          CONSTAL_API_KEY: ${{ secrets.CONSTAL_API_KEY }}
+          CONSTAL_NAMESPACE: ${{ inputs.namespace }}

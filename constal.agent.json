@@ -3,11 +3,15 @@
   "kind": "agent",
   "id": "market-landscape-survey",
   "namespace": "default",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "entry": "src/index.ts",
   "mode": "script",
   "displayName": "Market landscape survey",
   "description": "Researches a market from a natural-language request and reports supply side, demand side, and gaps and market dynamics.",
+  "labels": {
+    "app.constal.ai/use-case": "market-research",
+    "channels.constal.ai/openai": "enabled"
+  },
   "bindings": {
     "model": "crn:constal:production:platform:default:model/gpt-5.6-terra",
     "search": "crn:constal:production:platform:default:service/constal-search",
