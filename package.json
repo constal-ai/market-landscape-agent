@@ -1,0 +1,21 @@
+{
+  "name": "@constal/market-landscape-agent",
+  "version": "0.1.1",
+  "description": "A Constal agent that researches a market landscape from a natural-language request.",
+  "license": "Apache-2.0",
+  "author": "Coresource AI, Inc.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit --pretty false -p tsconfig.json",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@constal/sdk": "3.4.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

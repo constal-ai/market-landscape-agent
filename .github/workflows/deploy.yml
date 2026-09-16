@@ -1,0 +1,30 @@
+# Copyright 2026 Coresource AI, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: Constal namespace to deploy into
+        default: default
+        required: true
+permissions:
+  contents: read
+concurrency: deploy
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: constal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npx --yes --package @constal/cli@1.3.1 constal deploy . --wait
+        env:
+          CONSTAL_API_KEY: ${{ secrets.CONSTAL_API_KEY }}
+          CONSTAL_NAMESPACE: ${{ inputs.namespace }}

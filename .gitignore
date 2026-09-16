@@ -1,0 +1,17 @@
+# Copyright 2026 Coresource AI, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.tgz
+
+
+# Local credentials and operator-specific evaluation results
+.env
+.env.*
+!.env.example
+.dev.vars
+.constal/
+evals/local/
