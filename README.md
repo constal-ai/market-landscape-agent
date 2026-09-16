@@ -79,11 +79,13 @@ npm run ui:deploy         # Publish or update the private UI Resource
 `channels.constal.ai/openai` label, which the manifest carries. It stores the
 bundle through a temporary helper Agent's ordinary CAS `put`, then creates or
 updates the `market-landscape-workspace` UI Resource pinned to the current Agent
-revision, the platform's OpenAI-compatible Channel, and the tenant API-key
-AuthProvider. The UI is private: open it from the Agent's page in Console, where
-the `app.constal.ai/primary` label adds an **Open** button, or use its hosted
-URL and continue with your Constal login. The `Deploy` workflow publishes the UI
-after deploying the Agent.
+revision and the platform's OpenAI-compatible Channel. The UI is **public** by
+default: anyone with its hosted URL can run a survey, and each run is charged to
+the deploying account within the manifest's `limits` and the workspace Policy.
+Publish with `UI_ACCESS=authenticated` (or `npm run ui:deploy -- --private`) to
+require a Constal login instead. Console also shows an **Open** button on the
+Agent's page through the `app.constal.ai/primary` label. The `Deploy` workflow
+publishes the UI after deploying the Agent.
 
 ## Using the agent
 

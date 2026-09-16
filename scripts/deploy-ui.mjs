@@ -15,9 +15,16 @@ const AGENT_ID = "market-landscape-survey";
 const PLATFORM_MODEL = "crn:constal:production:platform:default:model/gpt-5.6-terra";
 const PLATFORM_CAS = "crn:constal:production:platform:default:cas/constal";
 
+/** Public by default: anyone with the URL can run a survey on the tenant's account. Set UI_ACCESS=authenticated to require a Constal login. */
+function accessMode(options) {
+  const mode = options.access || process.env.UI_ACCESS || "public";
+  if (mode !== "public" && mode !== "authenticated") throw new Error("UI_ACCESS must be public or authenticated");
+  return mode;
+}
+
 export async function publishUi(options = {}) {
-  const built = await buildUi();
-  if (options.dryRun) return { kind: "ui", id: UI_ID, bundleRef: built.ref, bytes: Buffer.byteLength(built.canonical) };
+  const built = await buildUi(); const access = accessMode(options);
+  if (options.dryRun) return { kind: "ui", id: UI_ID, access, bundleRef: built.ref, bytes: Buffer.byteLength(built.canonical) };
   const configRoot = process.env.CONSTAL_CONFIG_DIR || join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "constal");
   const read = async (name) => { try { return JSON.parse(await readFile(join(configRoot, name), "utf8")); } catch (error) { if (error.code === "ENOENT") return {}; throw error; } };
   const config = await read("config.json");
@@ -41,7 +48,7 @@ export async function publishUi(options = {}) {
   const agent = await api(resource("agent", AGENT_ID));
   if (agent.labels?.["channels.constal.ai/openai"] !== "enabled") throw new Error("Deploy the Agent with the channels.constal.ai/openai label first (constal deploy . --wait).");
   const channel = await api(resource("channel", "openai-chat-completions"));
-  const provider = await api(resource("auth-provider", "constal-api-key"));
+  const provider = access === "authenticated" ? await api(resource("auth-provider", "constal-api-key")) : null;
   const current = await api(resource("ui", UI_ID), undefined, "GET", true);
   const sdkVersion = JSON.parse(await readFile(join(root, "package.json"), "utf8")).dependencies["@constal/sdk"];
   const helperId = "market-landscape-ui-artifacts-" + crypto.randomUUID().slice(0, 8);
@@ -82,17 +89,18 @@ async onMessage(value,ctx){return ctx.invoke(ctx.resources.cas!,'put',{value});}
       labels: { "app.constal.ai/use-case": "market-research", "app.constal.ai/primary": "true" }, policies: [],
       source: { kind: "bundle", artifact: { cas: { crn: cas.crn, hash: cas.hash }, ref: built.ref, manifestHash: built.manifestHash, format: "constal.ui.v1" } },
       target: { agent: { crn: agent.crn, hash: agent.hash }, channel: { crn: channel.crn, hash: channel.hash } },
-      access: { mode: "authenticated", authProvider: { crn: provider.crn, hash: provider.hash } }, execution: { mode: "stateless" },
+      access: provider ? { mode: "authenticated", authProvider: { crn: provider.crn, hash: provider.hash } } : { mode: "public" }, execution: { mode: "stateless" },
       limits: { requestBodyBytes: 131072, responseBodyBytes: 4194304, cpuMs: 1000, subrequests: 8 }, expectedCurrentHash: current?.hash ?? null };
     const published = await api(`namespaces/${namespace}/resources`, definition);
     await mkdir(join(root, "dist/ui"), { recursive: true });
     await writeFile(join(root, "dist/ui/deployment.json"), JSON.stringify({ ...published, bundleRef: built.ref }, null, 2));
-    return { kind: "ui", id: UI_ID, namespace, url: published.url, hash: published.hash, bundleRef: built.ref, access: "tenant-authenticated" };
+    return { kind: "ui", id: UI_ID, namespace, url: published.url, hash: published.hash, bundleRef: built.ref, access };
   } finally {
     if (deployed) await api(resource("agent", helperId), undefined, "DELETE");
     await rm(temporary, { recursive: true, force: true });
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  console.log(JSON.stringify(await publishUi({ dryRun: process.argv.includes("--dry-run") }), null, 2));
+  console.log(JSON.stringify(await publishUi({ dryRun: process.argv.includes("--dry-run"),
+    ...(process.argv.includes("--private") ? { access: "authenticated" } : {}) }), null, 2));
 }
