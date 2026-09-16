@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, tmpdir } from "node:os";
-import { buildUi, UI_ID } from "./build-ui.mjs";
+import { buildUi, UI_ID, UI_STORAGE } from "./build-ui.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const AGENT_ID = "market-landscape-survey";
@@ -85,11 +85,11 @@ async onMessage(value,ctx){return ctx.invoke(ctx.resources.cas!,'put',{value});}
     const result = run.result ?? await api("artifacts/" + run.resultRef);
     if (result.ref !== built.ref) throw new Error("CAS artifact reference differs from the UI bundle hash.");
     const definition = { kind: "ui", id: UI_ID, version: String(Number(current?.version ?? 0) + 1),
-      displayName: "Market landscape", description: "Ask for a market in a few words and read a sourced supply, demand, and dynamics report.",
+      displayName: "Market landscape", description: "Ask for a market in a few words, watch surveys run, and share sourced supply, demand, and dynamics reports.",
       labels: { "app.constal.ai/use-case": "market-research", "app.constal.ai/primary": "true" }, policies: [],
       source: { kind: "bundle", artifact: { cas: { crn: cas.crn, hash: cas.hash }, ref: built.ref, manifestHash: built.manifestHash, format: "constal.ui.v1" } },
       target: { agent: { crn: agent.crn, hash: agent.hash }, channel: { crn: channel.crn, hash: channel.hash } },
-      access: provider ? { mode: "authenticated", authProvider: { crn: provider.crn, hash: provider.hash } } : { mode: "public" }, execution: { mode: "stateless" },
+      access: provider ? { mode: "authenticated", authProvider: { crn: provider.crn, hash: provider.hash } } : { mode: "public" }, execution: { mode: "durable", storage: UI_STORAGE },
       limits: { requestBodyBytes: 131072, responseBodyBytes: 4194304, cpuMs: 1000, subrequests: 8 }, expectedCurrentHash: current?.hash ?? null };
     const published = await api(`namespaces/${namespace}/resources`, definition);
     await mkdir(join(root, "dist/ui"), { recursive: true });

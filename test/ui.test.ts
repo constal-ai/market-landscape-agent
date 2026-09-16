@@ -45,10 +45,11 @@ describe("markdown renderer", () => {
 });
 
 describe("ui bundle", () => {
-  it("builds a valid stateless constal.ui.v1 bundle with every asset", async () => {
+  it("builds a valid durable constal.ui.v1 bundle with every asset", async () => {
     const built = await buildUi();
     expect(UI_ID).toBe("market-landscape-workspace");
     expect(built.bundle.manifest).toEqual({ schemaVersion: 1, kind: "constal.ui", runtime: { contract: "constal.ui-handler.v1", entry: "worker.mjs" },
+      state: { schemaVersion: 1, compatibleSchemaVersions: { minimum: 1, maximum: 1 } },
       assets: { root: "public", fallback: "index.html" }, contentSecurityPolicy: "strict" });
     expect(Object.keys(built.bundle.modules)).toEqual(["worker.mjs"]);
     expect(Object.keys(built.bundle.assets).sort()).toEqual(["public/app.js", "public/favicon.svg", "public/index.html", "public/markdown.js", "public/styles.css"]);

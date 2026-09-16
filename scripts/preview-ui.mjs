@@ -9,6 +9,7 @@ import { resolve, dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { sampleReport } from "../ui/demo.mjs";
+import { createLocalUi } from "./local-state.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const AGENT_ID = "market-landscape-survey";
@@ -25,6 +26,15 @@ if (origin.protocol !== "https:" || origin.username || origin.password) throw ne
 const tenantHeader = config.tenant ? { "x-constal-tenant": config.tenant } : {};
 const types = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml" };
 const demoRuns = new Map();
+const publicRoot = resolve(root, "ui/public");
+async function serveAsset(input) {
+  const url = new URL(typeof input === "string" ? input : input.url);
+  const path = resolve(publicRoot, url.pathname === "/" ? "index.html" : `.${url.pathname}`);
+  if (!path.startsWith(publicRoot + "/")) return new Response("not found", { status: 404 });
+  try { return new Response(await readFile(path), { headers: { "content-type": types[extname(path)] || "application/octet-stream" } }); }
+  catch { return new Response("not found", { status: 404 }); }
+}
+const ui = createLocalUi(serveAsset, process.env.PREVIEW_STATE || ":memory:");
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://127.0.0.1:${port}`);
@@ -64,12 +74,13 @@ const server = createServer(async (request, response) => {
       }
       return reply(upstream.status, value);
     }
-    const path = resolve(root, "ui/public", url.pathname === "/" ? "index.html" : `.${url.pathname}`);
-    if (!path.startsWith(resolve(root, "ui/public") + "/")) { response.writeHead(404); response.end(); return; }
-    const bytes = await readFile(path);
-    response.writeHead(200, { "content-type": types[extname(path)] || "application/octet-stream", "cache-control": "no-store",
+    // Everything else goes through the durable handler, exactly as the platform host does.
+    let text = ""; if (!["GET", "HEAD"].includes(request.method)) for await (const chunk of request) { text += chunk; if (text.length > 1_048_576) throw new Error("Request too large"); }
+    const handled = await ui.fetch(new Request(url, { method: request.method, headers: { "content-type": request.headers["content-type"] ?? "" }, ...(text ? { body: text } : {}) }));
+    const headers = Object.fromEntries(handled.headers.entries());
+    response.writeHead(handled.status, { ...headers, "cache-control": "no-store",
       "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" });
-    response.end(bytes);
+    response.end(Buffer.from(await handled.arrayBuffer()));
   } catch (error) {
     response.writeHead(error?.code === "ENOENT" ? 404 : 500, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: key ? String(error.message).replaceAll(key, "[redacted]") : error.message }));

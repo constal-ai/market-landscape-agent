@@ -61,12 +61,22 @@ no Policies; the deploying workspace's Policy applies.
 
 ## Instant UI
 
-The `ui/` directory is a stateless Constal Instant UI: one request box, a
-progress state while the Agent researches, and the finished report rendered
-from Markdown with its citations. Recent reports are kept only in the browser.
-The bundle holds no credentials, state, or agent logic; the browser sends the
-request as a chat message over the host-owned `/_constal/channel` route and
-polls `/_constal/runs/:id` until the Run completes.
+The `ui/` directory is a durable Constal Instant UI: one request box, a live
+feed of every visitor's surveys, and finished reports rendered from Markdown
+with their citations. The bundle holds no credentials or agent logic. The
+browser sends the request as a chat message over the host-owned
+`/_constal/channel` route and polls `/_constal/runs/:id` until the Run
+completes; the UI's own SQLite state (`ui/worker.mjs`) records each survey,
+its heartbeat, and its report so that:
+
+- everyone sees surveys as they start, run, finish, or stall, through a
+  versioned `/api/feed` that answers "unchanged" cheaply while tabs poll;
+- every report has a public link, `/r/<id>`, that anyone can open;
+- a browser that started a survey shows it immediately, keeps driving the Run
+  in the background, resumes after a reload, and never waits on bookkeeping.
+
+Only the browser that created a survey can update it; ownership is a random
+token kept in that browser. The report is the Run's final result unchanged.
 
 ```sh
 npm run ui:preview        # Labeled demo fixture at http://127.0.0.1:4173
