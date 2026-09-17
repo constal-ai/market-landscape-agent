@@ -53,7 +53,7 @@ function agentContractViolations(source: string, memorySource = ""): string[] {
     return [...violations, "the default export must register an agent object"];
   }
   const config = firstArgument;
-  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.4.3"], ["model", "model"], ["mode", "durable"]] as const) {
+  for (const [name, value] of [["id", "market-landscape-survey"], ["version", "0.4.4"], ["model", "model"], ["mode", "durable"]] as const) {
     const entry = property(config, name);
     if (!entry || !ts.isPropertyAssignment(entry) || !ts.isStringLiteral(entry.initializer) || entry.initializer.text !== value) {
       violations.push(`agent ${name} must be ${value}`);
@@ -91,7 +91,7 @@ describe("market landscape agent structural contract", () => {
       readJson("package.json") as Promise<{ dependencies: Record<string, string> }>,
     ]);
     expect(manifest).toEqual({
-      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.4.3",
+      schemaVersion: 2, kind: "agent", id: "market-landscape-survey", namespace: "default", version: "0.4.4",
       entry: "src/index.ts", mode: "durable", displayName: "Market landscape survey", description: expect.any(String),
       labels: { "app.constal.ai/use-case": "market-research", "channels.constal.ai/openai": "enabled" },
       bindings: {
@@ -159,7 +159,7 @@ describe("market landscape agent structural contract", () => {
       ["done: false", "done: !turn", "runtime lifecycle is missing done: false"],
       ["report: turn.message.content", "report: String(turn.message.content)", "runtime lifecycle is missing report: turn.message.content"],
     ] as const) {
-      const mutated = source.replace(before, after);
+      const mutated = source.replaceAll(before, after);
       expect(mutated).not.toBe(source);
       expect(agentContractViolations(mutated)).toContain(violation);
     }

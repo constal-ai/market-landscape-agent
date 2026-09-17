@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "market-landscape-survey",
   "namespace": "default",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "entry": "src/index.ts",
   "mode": "durable",
   "displayName": "Market landscape survey",

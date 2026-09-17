@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { agent, webFetch, webSearch } from "@constal/sdk";
-import { contextAllowance, fold, initialState, recalibrate, recordRound, surveyContext, type SurveyState } from "./memory.js";
+import { contextAllowance, fold, initialState, recalibrate, recordFailure, recordRound, surveyContext, type SurveyState } from "./memory.js";
 import { marketLandscapeResearchPrompt } from "./prompt.js";
 import { recallEvidence } from "./tools.js";
 
 const TOOLS = { web_search: webSearch, web_fetch: webFetch, recall_evidence: recallEvidence };
 const RESEARCH_TOOLS = ["web_search", "web_fetch", "recall_evidence"];
 const TOOL_DECLARATIONS = JSON.stringify(Object.values(TOOLS).map(({ name, description, schema }) => ({ name, description, schema })));
+/** The runtime's durable execution protocol and its hard limits are never translated into a recorded failure. */
+const RUNTIME_CONTROL_ERRORS = new Set(["AfterYield", "CommitConflict", "CommitYield", "InjectedEffectCrash", "LeaseLost", "NondeterministicReplay",
+  "RunLimitReached", "RuntimeTransportUnavailable", "SessionDeleted", "SuspendYield", "SwallowedYield", "Cancelled"]);
+function runtimeControl(error: unknown): boolean {
+  const source = error && typeof error === "object" ? error as { name?: unknown; durableSuspension?: unknown; message?: unknown } : null;
+  return source?.durableSuspension === true || typeof source?.name === "string" && RUNTIME_CONTROL_ERRORS.has(source.name);
+}
 
 interface ChatMessage {
   role: string;
@@ -47,7 +54,7 @@ export function requestText(message: unknown): string {
  */
 export default agent<SurveyState>({
   id: "market-landscape-survey",
-  version: "0.4.3",
+  version: "0.4.4",
   model: "model",
   mode: "durable",
   tools: TOOLS,
@@ -61,7 +68,13 @@ export default agent<SurveyState>({
     const allowance = contextAllowance(await ctx.describeResource("model"), state, overhead);
     const folded = allowance === null ? state : fold(state, allowance);
     const spec = { system, context: surveyContext(folded), tools: RESEARCH_TOOLS, effort: "high" as const };
-    const turn = await ctx.turn(spec);
+    let turn;
+    try { turn = await ctx.turn(spec); }
+    catch (error) {
+      // A model call that failed or whose outcome is unknown has no side effects to reconcile; the next dispatch tries again.
+      if (runtimeControl(error)) throw error;
+      return { state: recordFailure(folded, error), done: false };
+    }
     const calibrated = recalibrate(folded, turn.cost, JSON.stringify(spec.context).length + overhead);
     if (turn.toolCalls.length === 0) {
       return { state: { ...calibrated, turns: calibrated.turns + 1, report: turn.message.content }, done: true };

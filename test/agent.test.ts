@@ -27,7 +27,7 @@ function fakeCtx(turns: TurnRecord[], model?: { contextTokens?: number; maxOutpu
 describe("durable survey agent", () => {
   it("initializes its state from the request text and offers exactly the research tools", () => {
     expect(agent.mode).toBe("durable");
-    expect(agent.version).toBe("0.4.3");
+    expect(agent.version).toBe("0.4.4");
     expect(Object.keys(agent.tools!)).toEqual(["web_search", "web_fetch", "recall_evidence"]);
     expect(agent.init!({ messages: [{ role: "user", content: "heat pumps" }] }).request).toBe("heat pumps");
     expect(agent.init!("x")).toEqual(initialState("x"));
@@ -70,6 +70,23 @@ describe("durable survey agent", () => {
     const unbounded = fakeCtx([turn("next", [call("c3", "https://example.com/3", "y")])]);
     await unbounded.run(state);
     expect((unbounded.ctx.calls[0]!.context as { rounds: unknown[] }).rounds).toEqual(state.rounds);
+  });
+
+  it("records a failed model turn and continues on the next dispatch, but never swallows runtime control", async () => {
+    const unknown = Object.assign(new Error("effect outcome is unknown at turn/3/root/1/invoke/model/0"), { name: "OutcomeUnknown" });
+    const { ctx, run } = fakeCtx([], { contextTokens: 1_000_000, maxOutputTokens: 100_000 });
+    ctx.turn.mockRejectedValueOnce(unknown);
+    const state = recordRound(initialState("heat pumps"), turn("looking", [call("c1", "https://example.com/a", "body a")]));
+    const result = await run(state);
+    expect(result.done).toBe(false);
+    expect(result.state.turns).toBe(2);
+    expect(result.state.rounds.at(-1)).toEqual({ turn: 1, intent: "", observations: [], failure: { name: "OutcomeUnknown", message: unknown.message } });
+    expect(result.state.report).toBeNull();
+    for (const control of [Object.assign(new Error("yield"), { name: "SuspendYield" }), Object.assign(new Error("maxTurns"), { name: "RunLimitReached" }),
+      Object.assign(new Error("suspended"), { durableSuspension: true })]) {
+      ctx.turn.mockRejectedValueOnce(control);
+      await expect(run(state)).rejects.toBe(control);
+    }
   });
 
   it("recalls an exact saved result by ref, whole or as a chosen window", async () => {

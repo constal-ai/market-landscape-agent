@@ -16,8 +16,8 @@ export interface Observation {
   ref?: string;
 }
 
-/** One research turn that issued tool calls: the model's stated intent plus what came back. */
-export interface Round { turn: number; intent: string; observations: Observation[] }
+/** One research turn: the model's stated intent plus what came back, or the failure that ended the turn before it produced anything. */
+export interface Round { turn: number; intent: string; observations: Observation[]; failure?: { name: string; message: string } }
 
 export interface SurveyState {
   v: 2;
@@ -54,6 +54,14 @@ export function recordRound(state: SurveyState, turn: TurnRecord): SurveyState {
   const observations = turn.toolCalls.map((call, index) => observation(call, state.nextSeq + index));
   return { ...state, turns: state.turns + 1, nextSeq: state.nextSeq + observations.length,
     rounds: [...state.rounds, { turn: state.turns, intent: turn.message.content, observations }] };
+}
+
+/** A turn that failed at the runtime boundary is recorded so the next dispatch retries with the failure visible; the manifest limits bound the retries. */
+export function recordFailure(state: SurveyState, error: unknown): SurveyState {
+  const source = error && typeof error === "object" ? error as { name?: unknown; message?: unknown } : null;
+  const name = typeof source?.name === "string" && source.name ? source.name : "Error";
+  const message = typeof source?.message === "string" && source.message ? source.message : String(error);
+  return { ...state, turns: state.turns + 1, rounds: [...state.rounds, { turn: state.turns, intent: "", observations: [], failure: { name, message } }] };
 }
 
 export function surveyContext(state: SurveyState): SurveyContext {
